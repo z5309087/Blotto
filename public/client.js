@@ -1,4 +1,5 @@
 const socket = io();
+let isFirstPlayer = false;
 
 document.getElementById('joinForm').addEventListener('submit', (event) => {
     event.preventDefault();
@@ -12,6 +13,7 @@ socket.on('waitingForPlayer', () => {
 });
 
 socket.on('isFirstPlayer', () => {
+    isFirstPlayer = true;
     document.getElementById('settingsForm').style.display = 'block';
     document.getElementById('status').innerText = 'Enter game settings:';
 });
@@ -62,14 +64,14 @@ document.getElementById('moveForm').addEventListener('submit', (event) => {
     }
 });
 
-socket.on('gameResult', (data) => {
-    const { results, scores, crossTable, distributions } = data;
+socket.on('roundResult', (data) => {
+    const { results, crossTable, distributions, roundScores } = data;
     const playerNames = Object.keys(crossTable);
     document.getElementById('status').innerHTML = `
-        <h2>Game Over</h2>
-        <p>Scores:</p>
+        <h2>Round Results</h2>
+        <p>Round Scores:</p>
         <ul>
-            ${scores.map(score => `<li>${score.name}: ${score.score} points, ${score.wins} wins</li>`).join('')}
+            ${roundScores.map(score => `<li>${score.name}: ${score.score} points, ${score.wins} wins</li>`).join('')}
         </ul>
         <table>
             <thead>
@@ -96,7 +98,43 @@ socket.on('gameResult', (data) => {
         ${playerNames.map(name => `
             <p><strong>${name}:</strong> ${distributions[name].join(', ')}</p>
         `).join('')}
+        ${isFirstPlayer ? '<button id="updateSettingsButton">Update Settings</button>' : ''}
+        ${isFirstPlayer ? '<button id="endGameButton">End Game</button>' : ''}
     `;
+
+    if (isFirstPlayer) {
+        document.getElementById('updateSettingsButton').addEventListener('click', () => {
+            document.getElementById('settingsForm').style.display = 'block';
+            document.getElementById('status').innerText = 'Update game settings:';
+        });
+
+        document.getElementById('endGameButton').addEventListener('click', () => {
+            socket.emit('endGame');
+        });
+    }
+});
+
+document.getElementById('settingsForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const castles = parseInt(document.getElementById('castles').value);
+    const points = document.getElementById('points').value.split(',').map(Number);
+    const soldiers = parseInt(document.getElementById('soldiers').value);
+    socket.emit('updateSettings', { castles, points, soldiers });
+    document.getElementById('settingsForm').style.display = 'none';
+});
+
+socket.on('settingsUpdated', (settings) => {
+    document.getElementById('status').innerText = 'Game settings updated. Distribute your soldiers:';
+    document.getElementById('moveForm').style.display = 'block';
+    const moveForm = document.getElementById('moveForm');
+    moveForm.innerHTML = '';
+    for (let i = 0; i < settings.castles; i++) {
+        moveForm.innerHTML += `<label for="castle${i}">Castle ${i + 1} (${settings.points[i]} points):</label>
+        <input type="number" id="castle${i}" name="castle${i}" min="0" max="${settings.soldiers}" required><br>`;
+    }
+    moveForm.innerHTML += '<button type="submit">Submit</button>';
+    moveForm.dataset.soldiers = settings.soldiers;
+    socket.emit('nextRound'); // Trigger the next round when settings are updated
 });
 
 socket.on('invalidMove', (message) => {
@@ -112,4 +150,15 @@ socket.on('nextRound', (roundNumber) => {
     document.getElementById('status').innerText = `Round ${roundNumber}. Distribute your soldiers:`;
     document.getElementById('moveForm').style.display = 'block';
     document.getElementById('moveForm').reset();
+});
+
+socket.on('gameEnded', (data) => {
+    const { scores } = data;
+    document.getElementById('status').innerHTML = `
+        <h2>Final Scores</h2>
+        <ul>
+            ${scores.map(score => `<li>${score.name}: ${score.wins} wins, ${score.averagePercentage} average percentage</li>`).join('')}
+        </ul>
+        <p>The game has ended. Thank you for playing!</p>
+    `;
 });
